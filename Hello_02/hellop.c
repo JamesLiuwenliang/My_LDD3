@@ -18,7 +18,8 @@ static int hello_init(void){
         printk("Hello %s\r\n",whom);
     }
 
-    // KERN_ALERT 是消息的优先级,后面就是没有","
+    // KERN_ALERT 是消息的优先级,后面是没有","的
+    // 优先级级别仅次于KERN_EMERG,在使用的时候会被当做宏来替换成字符串,所以不能有逗号
     printk(KERN_ALERT "Hello World\n");
     return 0;
 }
