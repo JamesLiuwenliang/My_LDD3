@@ -39,6 +39,12 @@ static int globalmem_release(struct inode *inode,struct file *filp){
     return 0;
 }
 
+static int just_test(){
+    
+    return 0;
+
+}
+
 
 /**
  * globalmem 设备驱动的读写函数

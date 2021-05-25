@@ -1,8 +1,20 @@
-/**
- * 
+/*
  * scull.h -- definitions for the char module
- * 
+ *
+ * Copyright (C) 2001 Alessandro Rubini and Jonathan Corbet
+ * Copyright (C) 2001 O'Reilly & Associates
+ *
+ * The source code in this file can be freely used, adapted,
+ * and redistributed in source or binary form, so long as an
+ * acknowledgment appears in derived source files.  The citation
+ * should list that the code comes from the book "Linux Device
+ * Drivers" by Alessandro Rubini and Jonathan Corbet, published
+ * by O'Reilly & Associates.   No warranty is attached;
+ * we cannot take responsibility for errors or fitness for use.
+ *
+ * $Id: scull.h,v 1.15 2004/11/04 17:51:18 rubini Exp $
  */
+
 #ifndef _SCULL_H_
 #define _SCULL_H_
 
@@ -64,12 +76,8 @@
 #define SCULL_P_BUFFER 4000
 #endif
 
-
-
-
 /*
- *  相当于globalmem_dev，不过更复杂
- *  最重要的是cdev，他是内核和设备间的接口
+ * Representation of scull quantum sets.
  */
 struct scull_qset {
 	void **data;
@@ -77,23 +85,26 @@ struct scull_qset {
 };
 
 struct scull_dev {
-	struct scull_qset *data;  /* 指向量子集的指针  */
-	int quantum;              /* 当前量子的大小    */
-	int qset;                 /* 当前数组的大小    */
-	unsigned long size;       /* 保存在其中的数据总量 */
-	unsigned int access_key;  /* 由 sculluid and scullpriv 使用*/
-	struct mutex mutex;       /* 互斥信号量        */
-	struct cdev cdev;	      /* 字符设备结构	   */
+	struct scull_qset *data;  /* Pointer to first quantum set */
+	int quantum;              /* the current quantum size */
+	int qset;                 /* the current array size */
+	unsigned long size;       /* amount of data stored here */
+	unsigned int access_key;  /* used by sculluid and scullpriv */
+	struct mutex mutex;     /* mutual exclusion semaphore     */
+	struct cdev cdev;	  /* Char device structure		*/
 };
 
-
-
-
+/*
+ * Split minors in two parts
+ */
 #define TYPE(minor)	(((minor) >> 4) & 0xf)	/* high nibble */
 #define NUM(minor)	((minor) & 0xf)		/* low  nibble */
 
 
-extern int scull_major;     /* my_scull.c */
+/*
+ * The different configurable parameters
+ */
+extern int scull_major;     /* main.c */
 extern int scull_nr_devs;
 extern int scull_quantum;
 extern int scull_qset;
@@ -102,13 +113,33 @@ extern int scull_p_buffer;	/* pipe.c */
 
 
 /*
- * ioctl 相关定义
+ * Prototypes for shared functions
  */
 
-// 幻数，用'k'表示
-#define SCULL_IOC_MAGIC  'k'
+int     scull_p_init(dev_t dev);
+void    scull_p_cleanup(void);
+int     scull_access_init(dev_t dev);
+void    scull_access_cleanup(void);
 
+int     scull_trim(struct scull_dev *dev);
+
+ssize_t scull_read(struct file *filp, char __user *buf, size_t count,
+                   loff_t *f_pos);
+ssize_t scull_write(struct file *filp, const char __user *buf, size_t count,
+                    loff_t *f_pos);
+loff_t  scull_llseek(struct file *filp, loff_t off, int whence);
+long     scull_ioctl(struct file *filp,
+                    unsigned int cmd, unsigned long arg);
+
+
+/*
+ * Ioctl definitions
+ */
+
+/* Use 'k' as magic number */
+#define SCULL_IOC_MAGIC  'k'
 /* Please use a different 8-bit number in your code */
+
 #define SCULL_IOCRESET    _IO(SCULL_IOC_MAGIC, 0)
 
 /*
@@ -132,6 +163,11 @@ extern int scull_p_buffer;	/* pipe.c */
 #define SCULL_IOCHQUANTUM _IO(SCULL_IOC_MAGIC,  11)
 #define SCULL_IOCHQSET    _IO(SCULL_IOC_MAGIC,  12)
 
+/*
+ * The other entities only have "Tell" and "Query", because they're
+ * not printed in the book, and there's no need to have all six.
+ * (The previous stuff was only there to show different ways to do it.
+ */
 #define SCULL_P_IOCTSIZE _IO(SCULL_IOC_MAGIC,   13)
 #define SCULL_P_IOCQSIZE _IO(SCULL_IOC_MAGIC,   14)
 /* ... more to come */
@@ -139,5 +175,3 @@ extern int scull_p_buffer;	/* pipe.c */
 #define SCULL_IOC_MAXNR 14
 
 #endif /* _SCULL_H_ */
-
-
