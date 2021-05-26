@@ -90,6 +90,10 @@ loff_t scull_llseek(struct file* filp, loff_t off , int where);
 
 void scull_cleanup_module(void);
 
+
+int scull_read_procmem(char *buf  ,char **start , off_t offset , int count , int *eof , void *data);
+
+
 /*
  * Ioctl definitions
  */
