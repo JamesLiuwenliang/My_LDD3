@@ -49,6 +49,40 @@ static struct file_operations scull_fops = {
     .release = scull_release, // 当file结构被释放时，调用这个操作
 };
 
+static int scull_read_procmem(char *buf  ,char **start , off_t offset , int count , int *eof , void *data){
+    int i , j , len = 0;
+    int limit  = count - 80; // 不要打印超过这个值的数据
+
+    for(i = 0; i< scull_nr_devs && len <= limit ;i++){
+        struct scull_dev *d = &scull_devices[i];
+        struct scull_qset *qs = d->data;
+
+        if(down_interruptible(&d->sem))
+            return -ERESTARTSYS;
+
+        len += sprintf(buf + len , "\n Device %i: qset %i , q %i , sz %li\n",
+                i  ,d->qset , d->quantum , d->size);
+        for( ; qs && len <= limit ; qs = qs->next){
+            len += sprintf(buf+len , "item at %p , qset at %p \n", qs , qs->data);
+
+            if(qs->data && !qs->next){
+
+                for(j = 0 ;j<d->qset ; j++){
+                    if(qs->data[j]){
+                        len += sprintf(buf+len , "   % 4i: %8p\n" , j,qs->data[j]);
+                    }
+                }
+
+            }
+        }
+        up(&scull_devices[i].sem);
+    }
+
+    *eof = 1;
+    return len;
+
+
+}
 
 // 将cdev(字符设备)添加到scull系统上
 static void scull_setup_cdev(struct scull_dev* dev , int index){
