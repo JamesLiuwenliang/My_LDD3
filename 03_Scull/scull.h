@@ -77,12 +77,21 @@ loff_t scull_llseek(struct file* filp, loff_t off , int where);
 void scull_cleanup_module(void);
 
 /*
- * Ioctl definitions
+ * Ioctl 的命令号的定义,
+ * 命令号: 使用一个16位整数,高8位是与设备相关的幻数(如下文的 ‘k’),低8位是一个序列号码,在设备中具有唯一性
  */
 /* Use 'k' as magic number */
 #define SCULL_IOC_MAGIC  'k'
 /* Please use a different 8-bit number in your code */
 #define SCULL_IOCRESET    _IO(SCULL_IOC_MAGIC, 0)
+/**
+ * - S 表示通过指针"设置"(Set)
+ * - T 表示直接用参数值"通知"(Tell)
+ * - G 表示获取(Get),通过获取指针来应答
+ * - Q 表示查询(Query),通过返回值应答
+ * - X 表示交换(eXchange)，原子的交换 G 和 S
+ * - H 表示切换(sHift),原子的交换 T 和 Q
+ */ 
 
 #define SCULL_IOCSQUANTUM _IOW(SCULL_IOC_MAGIC,  1, int)
 #define SCULL_IOCSQSET    _IOW(SCULL_IOC_MAGIC,  2, int)

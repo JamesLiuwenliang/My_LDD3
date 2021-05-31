@@ -282,10 +282,16 @@ long scull_ioctl(struct file* filp , unsigned int cmd , unsigned long arg){
     int err = 0 , tmp ;
     int retval = 0;
 
-    // 错误指令
+    // POSIX标准,使用不合适的ioctl命令参数,返回-ENOTTY
+    // 比如不满足魔数相同时,意味着设备不匹配;cmd高位的参数大于SCULL_IOC_MAXNR,意味着肯定这个cmd没有被定义
     if(_IOC_TYPE(cmd) != SCULL_IOC_MAGIC) return -ENOTTY;
     if(_IOC_NR(cmd) > SCULL_IOC_MAXNR) return -ENOTTY;
 
+
+    // access_ok()用来验证地址的有效性
+    // 能否从内核空间读数据到用户空间,就要判断用户空间是否可写,
+    // 如果用户空间都可写了,则这片空间必可读,所以VERIFY_WRITE是VERIFY_READ的超集
+    // access_ok(VERIFY_WRITE): 验证向用户空间write是合法的
 	if (_IOC_DIR(cmd) & _IOC_READ)
 		err = !access_ok(VERIFY_WRITE, (void __user *)arg, _IOC_SIZE(cmd));
 	else if (_IOC_DIR(cmd) & _IOC_WRITE)
