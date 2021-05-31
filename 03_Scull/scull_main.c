@@ -276,6 +276,7 @@ struct scull_qset *scull_follow(struct scull_dev *dev, int n){
 
 }
 
+// ioctl可认为是系统调用,方便用户空间的程序访问设备驱动(进入内核空间)
 long scull_ioctl(struct file* filp , unsigned int cmd , unsigned long arg){
 
     int err = 0 , tmp ;

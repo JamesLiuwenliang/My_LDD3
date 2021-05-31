@@ -9,7 +9,7 @@
 
 
 MODULE_AUTHOR("Liu Wenliang");
-MODULE_LICENSE("DUAL/BSD");
+MODULE_LICENSE("Dual BSD/GPL");
 
 static int complete_major = 0;
 
@@ -22,8 +22,10 @@ struct file_operations complete_fops = {
 // 创建一个 completion
 DECLARE_COMPLETION(comp);
 
+// 对于completion的使用,应是写操作优先于读操作,写操作执行之后通知读操作
 ssize_t complete_read (struct file* filp , char __user* buf , size_t count  , loff_t* pos){
     printk(KERN_DEBUG , "process %i (%s) going to sleep\n",current->pid, current->comm);
+    // 发送请求
     wait_for_completion(&comp);
     printk(KERN_DEBUG , "awoken %i (%s)\n" ,current->pid , current->comm);
     return 0;
@@ -58,10 +60,4 @@ int complete_cleanup(void){
 
 module_init(complete_init);
 module_exit(complete_cleanup);
-
-
-
-
-
-
 
