@@ -14,7 +14,7 @@
 
 #include <linux/uaccess.h>	/* copy_*_user */
 
-#include "scull.h"
+#include "scull_03.h"
 
 /**
  *  需要初始化的时候再使用
@@ -197,7 +197,6 @@ ssize_t scull_write(struct file* filp ,const char __user* buf, size_t count , lo
 
     ssize_t retval = -ENOMEM;
     
-    // 需要对返回值进行检查,如果返回非零值,则说明操作被中断
     if(down_interruptible(&dev->sem))
         return -ERESTARTSYS;
 
@@ -227,6 +226,7 @@ ssize_t scull_write(struct file* filp ,const char __user* buf, size_t count , lo
     if(count > quantum - q_pos)
         count = quantum - q_pos;
 
+     
     if(copy_from_user( dptr->data[s_pos] + q_pos , buf, count)){
         retval = -EFAULT;
         goto out;
@@ -239,8 +239,6 @@ ssize_t scull_write(struct file* filp ,const char __user* buf, size_t count , lo
         dev->size = *f_pos;
 
 out:
-    // 不论scull_wirte能否完成其他任务,都必须释放信号量
-    // scull_write可能发生的错误:内存分配失败,视图从用户空间复制数据时产生故障
     up(&dev->sem);
     return retval;   
 
@@ -278,97 +276,115 @@ struct scull_qset *scull_follow(struct scull_dev *dev, int n){
 
 }
 
+// ioctl可认为是系统调用,方便用户空间的程序访问设备驱动(进入内核空间)
 long scull_ioctl(struct file* filp , unsigned int cmd , unsigned long arg){
 
     int err = 0 , tmp ;
     int retval = 0;
 
-    // 错误指令
+    // POSIX标准,使用不合适的ioctl命令参数,返回-ENOTTY
+    // 比如不满足魔数相同时,意味着设备不匹配;cmd高位的参数大于SCULL_IOC_MAXNR,意味着肯定这个cmd没有被定义
     if(_IOC_TYPE(cmd) != SCULL_IOC_MAGIC) return -ENOTTY;
     if(_IOC_NR(cmd) > SCULL_IOC_MAXNR) return -ENOTTY;
 
+
+    // access_ok()用来验证地址的有效性,返回bool类型
+    // 能否从内核空间读数据到用户空间,就要判断用户空间是否可写,
+    // 如果用户空间都可写了,则这片空间必可读,所以VERIFY_WRITE是VERIFY_READ的超集
+    // access_ok(VERIFY_WRITE): 验证向用户空间write是合法的
 	if (_IOC_DIR(cmd) & _IOC_READ)
 		err = !access_ok(VERIFY_WRITE, (void __user *)arg, _IOC_SIZE(cmd));
 	else if (_IOC_DIR(cmd) & _IOC_WRITE)
 		err =  !access_ok(VERIFY_READ, (void __user *)arg, _IOC_SIZE(cmd));
 	if (err) return -EFAULT;
 
+    // 任何用户都可以查询quantum和quantum集的大小,但只有授权用户才可以更改这些值
+    // 可以利用 int capable(int capability){} 来检查用户的特权等级
 	switch(cmd) {
 
-	  case SCULL_IOCRESET:
-		scull_quantum = SCULL_QUANTUM;
-		scull_qset = SCULL_QSET;
-		break;
+	    case SCULL_IOCRESET:
+            scull_quantum = SCULL_QUANTUM;
+            scull_qset = SCULL_QSET;
+            break;
         
-	  case SCULL_IOCSQUANTUM: /* Set: arg points to the value */
-		if (! capable (CAP_SYS_ADMIN))
-			return -EPERM;
-		retval = __get_user(scull_quantum, (int __user *)arg);
-		break;
+        // capable()会检查调用进程是否有合适的权能
+        // Set : arg指向参数值
+	    case SCULL_IOCSQUANTUM: 
+            if (! capable (CAP_SYS_ADMIN))
+                return -EPERM;
+            // 从用户空间接收数据
+            retval = __get_user(scull_quantum, (int __user *)arg);
+            break;
 
-	  case SCULL_IOCTQUANTUM: /* Tell: arg is the value */
-		if (! capable (CAP_SYS_ADMIN))
-			return -EPERM;
-		scull_quantum = arg;
-		break;
+        // Tell : arg本身就是参数值
+	    case SCULL_IOCTQUANTUM: /* Tell: arg is the value */
+            if (! capable (CAP_SYS_ADMIN))
+                return -EPERM;
+            scull_quantum = arg;
+            break;
 
-	  case SCULL_IOCGQUANTUM: /* Get: arg is pointer to result */
-		retval = __put_user(scull_quantum, (int __user *)arg);
-		break;
+        // Get : arg指向结果的指针,将scull_quantum处的数据写到用户空间
+	    case SCULL_IOCGQUANTUM:
+            retval = __put_user(scull_quantum, (int __user *)arg);
+            break;
 
-	  case SCULL_IOCQQUANTUM: /* Query: return it (it's positive) */
-		return scull_quantum;
+        // Query : 返回结果
+	    case SCULL_IOCQQUANTUM:
+		    return scull_quantum;
 
-	  case SCULL_IOCXQUANTUM: /* eXchange: use arg as pointer */
-		if (! capable (CAP_SYS_ADMIN))
-			return -EPERM;
-		tmp = scull_quantum;
-		retval = __get_user(scull_quantum, (int __user *)arg);
-		if (retval == 0)
-			retval = __put_user(tmp, (int __user *)arg);
-		break;
+        // exchange : 将arg作为指针使用
+	    case SCULL_IOCXQUANTUM:
+            if (! capable (CAP_SYS_ADMIN))
+                return -EPERM;
+            tmp = scull_quantum;
+            retval = __get_user(scull_quantum, (int __user *)arg);
+            if (retval == 0)
+                retval = __put_user(tmp, (int __user *)arg);
+            break;
 
-	  case SCULL_IOCHQUANTUM: /* sHift: like Tell + Query */
-		if (! capable (CAP_SYS_ADMIN))
-			return -EPERM;
-		tmp = scull_quantum;
-		scull_quantum = arg;
-		return tmp;
+        // Shift
+	    case SCULL_IOCHQUANTUM:
+            if (! capable (CAP_SYS_ADMIN))
+                return -EPERM;
+            tmp = scull_quantum;
+            scull_quantum = arg;
+            return tmp;
         
-	  case SCULL_IOCSQSET:
-		if (! capable (CAP_SYS_ADMIN))
-			return -EPERM;
-		retval = __get_user(scull_qset, (int __user *)arg);
-		break;
+        // 下面的是操作qset的,和操作quantum的操作类似
+	    case SCULL_IOCSQSET:
+            if (! capable (CAP_SYS_ADMIN))
+                return -EPERM;
+            retval = __get_user(scull_qset, (int __user *)arg);
+            break;
 
-	  case SCULL_IOCTQSET:
-		if (! capable (CAP_SYS_ADMIN))
-			return -EPERM;
-		scull_qset = arg;
-		break;
+	    case SCULL_IOCTQSET:
+            if (! capable (CAP_SYS_ADMIN))
+                return -EPERM;
+            scull_qset = arg;
+            break;
 
-	  case SCULL_IOCGQSET:
-		retval = __put_user(scull_qset, (int __user *)arg);
-		break;
+	    case SCULL_IOCGQSET:
+            retval = __put_user(scull_qset, (int __user *)arg);
+            break;
 
-	  case SCULL_IOCQQSET:
-		return scull_qset;
+	    case SCULL_IOCQQSET:
+		    return scull_qset;
 
-	  case SCULL_IOCXQSET:
-		if (! capable (CAP_SYS_ADMIN))
-			return -EPERM;
-		tmp = scull_qset;
-		retval = __get_user(scull_qset, (int __user *)arg);
-		if (retval == 0)
-			retval = put_user(tmp, (int __user *)arg);
-		break;
+	    case SCULL_IOCXQSET:
+            if (! capable (CAP_SYS_ADMIN))
+                return -EPERM;
+            tmp = scull_qset;
+            retval = __get_user(scull_qset, (int __user *)arg);
+            if (retval == 0)
+                retval = put_user(tmp, (int __user *)arg);
+            break;
 
-	  case SCULL_IOCHQSET:
-		if (! capable (CAP_SYS_ADMIN))
-			return -EPERM;
-		tmp = scull_qset;
-		scull_qset = arg;
-		return tmp;
+	    case SCULL_IOCHQSET:
+            if (! capable (CAP_SYS_ADMIN))
+                return -EPERM;
+            tmp = scull_qset;
+            scull_qset = arg;
+            return tmp;
 
         /*
          * The following two change the buffer size for scullpipe.
@@ -378,8 +394,8 @@ long scull_ioctl(struct file* filp , unsigned int cmd , unsigned long arg){
 
 
 
-	  default:  /* redundant, as cmd was checked against MAXNR */
-		return -ENOTTY;
+	    default:  /* redundant, as cmd was checked against MAXNR */
+		    return -ENOTTY;
 	}
 	return retval;
 
@@ -448,7 +464,7 @@ int scull_init_module(void){
     for(i = 0;i< scull_nr_devs;i++){
         scull_devices[i].quantum = scull_quantum;
         scull_devices[i].qset = scull_qset;
-        init_mutex(&scull_devices[i].mutex);
+        mutex_init(&scull_devices[i].mutex);
         scull_setup_cdev(&scull_devices[i], i);
     }
 

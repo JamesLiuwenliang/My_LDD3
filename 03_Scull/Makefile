@@ -1,5 +1,5 @@
 ifneq ($(KERNELRELEASE),)
-	obj-m := scull_main.o
+	obj-m := scull_main_03.o
 
 else
 
