@@ -76,6 +76,32 @@ static ssize_t scull_p_read(struct file* filp , char __user* buf , size_t count,
 
 }
 
+static int scull_getwritespace(struct scull_pipe* dev , struct file* filp){
+    
+    while(spacefree(dev) == 0){
+        DEFINE_WAIT(wait);
+
+        up(&dev->sem);
+        if(filp->f_flags & O_NONBLOCK)
+            return -EAGAIN;
+
+		PDEBUG("\"%s\" writing: going to sleep\n",current->comm);
+        prepare_to_wait(&dev->outq , &wait , TASK_INTERRUPTIBLE);
+
+        if(spacefree(dev) == 0){
+            schedule();
+        }
+
+        finish_wait(&dev->outq , &wait);
+        if(signal_pending(current))
+            return -ERESTARTSYS;
+        if(down_interruptible(&dev-sem))
+            return -ERESTARTSYS;
+    }
+
+    return 0;
+
+}
 // 判断有多少空间被释放
 static int spacefree(struct scull_pipe* dev){
     if(dev->rp == dev->wp){
@@ -183,6 +209,30 @@ void scull_p_cleanup(void){
     scull_p_devices = NULL;
 }
 
+
+int main(int argc , char** argv){
+    int delay = 1 , n , m = 0;
+    if(argc > 1)
+        delay = atoi(argv[1]);
+
+    fcntl(0 ,F_SETFL , fcntl(0  ,F_GETFL) | O_NONBLOCK); // stdin
+    fcntl(1 ,F_SETFL , fcntl(1  ,F_GETFL) | O_NONBLOCK); // stdout
+
+    while(1){
+        n = read(0  ,buffer , 4096);
+        if(n >= 0 )
+            m = write(1 , buffer , n);
+
+        if((n < 0 || m < 0) && (errno != EAGAIN))
+            break;        
+
+        sleep(delay);
+    }
+
+    perror(n < 0 ? "stdin" : "stdout");
+    exit(1);
+    
+}
 
 
 
