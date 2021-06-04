@@ -14,6 +14,9 @@
 
 #include <linux/uaccess.h>	/* copy_*_user */
 
+#include <linux/poll.h>	/* copy_*_user */
+
+
 #include "scull_05.h"
 
 /**
@@ -130,6 +133,51 @@ int scull_trim(struct scull_dev* dev){
 
 }
 
+
+static ssize_t scull_p_read(struct file* filp , char __user *buf , size_t count, loff_t* f_pos){
+    
+    struct scull_pipe* dev = filp->private_data;
+
+    if(dowm(&dev->sem))
+        return -ERESTARTSYS;
+    
+    // P166 - 从设备读取数据
+    // 查看第二条:缓冲区没有数据所要执行的操作
+    while(dev->rp == dev->wp){
+        up(&dev->sem);
+        if(filp->f_flags & O_NONBLOCK)
+            return -EAGAIN;
+        PDEBUG("\"%s\" reading: going to sleep\n", current->comm);
+        // 默认情况下应该阻塞等待
+        if(wait_event_interruptible(dev->inq , (dev->rp != dev->wp)))
+            return -ERESTARTSYS;
+        if(dowm(&dev->sem))
+            return -ERESTARTSYS;
+    }
+
+    if(dev->wp > dev->rp)
+        count = min(count , (size_t)(dev->wp - dev->rp));
+    else    
+        count = min(count , (size_t)(dev->end - dev->rp));
+    
+    if(copy_to_user(buf , dev->rp , count)){
+        up(&dev->sem);
+        return -EFAULT;
+    }
+
+    dev->rp += count;
+    if(dev->rp == dev->end){
+        dev->rp = dev->buffer;
+    }
+
+    up(&dev->sem);
+
+    // 最后唤醒任何正在等待的写进程
+	wake_up_interruptible(&dev->outq);
+	PDEBUG("\"%s\" did read %li bytes\n",current->comm, (long)count);
+	return count;
+
+}
 /**
  * read():dev->user,从设备拷贝数据到用户空间(需要使用 copy_to_user)
  */ 
@@ -180,6 +228,49 @@ ssize_t scull_read(struct file* filp , char __user *buf , size_t count, loff_t* 
 out:
     up(&dev->sem);
     return retval;
+
+}
+
+ssize_t scull_p_write(struct file* filp ,const char __user* buf, size_t count , loff_t* f_pos){
+    struct scull_pipe* dev = filp->private_data;
+
+    int result;
+
+    if(down(&dev->sem))
+        return -ERESTARTSYS;
+ 
+    result = scull_getwritespace(dev , filp);
+    if(result == 0)
+        return result;
+
+    count = min( (size_t)spacefree(dev) , count);
+    if(dev->wp >= dev_rp)
+        count = min(count , (size_t)(dev->end - dev_wp));
+    else   
+        count = min(count , (size_t)(dev-rp - dev->wp - 1));
+    
+    PDEBUG("Going to accept %li bytes to %p from %p\n", (long)count, dev->wp, buf);
+
+    if(copy_from_user(dev->wp , buf, count)){
+        up(&dev->sem);
+        return -EFAULT;
+    }
+
+    dev->wp += count; 
+    if(dev->wp == dev->end){
+        dev->wp = dev->buffer;
+    }
+    up(&dev->sem);
+
+
+    // 唤醒任何等待的读进程
+	wake_up_interruptible(&dev->inq);
+    if(dev->async_queue){
+        kill_fasync(&dev->async_queue , SIGIO , POLL_IN);
+    }
+	PDEBUG("\"%s\" did write %li bytes\n",current->comm, (long)count);
+	return count;
+
 
 }
 
@@ -243,6 +334,31 @@ out:
     // scull_write可能发生的错误:内存分配失败,视图从用户空间复制数据时产生故障
     up(&dev->sem);
     return retval;   
+
+}
+
+static unsigned int scull_p_poll(struct file* filp , poll_table* wait){
+
+    struct scull_pipe* dev = filp->private_data;
+    unsigned int mask = 0;
+
+    // 缓冲区是环形的,如果wp在rp之后,则表明缓冲区已满,而如果它们两个相等,则表明是空的    
+    down(&dev->sem);
+    poll_wait(filp , &dev->inq , wait);
+    poll_wait(filp , &dev->outq , wait);
+
+    if(dev->rp != dev->wp){
+        // 可读取
+        mask |= POLLIN | POLLRDNORM;
+    }
+
+    if(spacefree(dev)){
+        // 可写入
+        mask |= POLLOUT | POLLWRMORM;
+    }
+
+    up(&dev->sem);
+    return mask
 
 }
 
