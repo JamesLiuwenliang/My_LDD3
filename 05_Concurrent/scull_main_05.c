@@ -133,6 +133,12 @@ int scull_trim(struct scull_dev* dev){
 
 }
 
+static int scull_p_fasync(int fd , struct file* filp , int mode){
+    struct scull_pipe* dev = filp->private_data;
+    // 当一个打开的文件的 FASYNC 标志被修改时,调用 fasync_helper 以便从相关的进程列表中增加和删除文件
+    return fasync_helper(fd , filp , mode , &dev->async_queue);
+}
+
 
 static ssize_t scull_p_read(struct file* filp , char __user *buf , size_t count, loff_t* f_pos){
     
@@ -266,6 +272,7 @@ ssize_t scull_p_write(struct file* filp ,const char __user* buf, size_t count , 
     // 唤醒任何等待的读进程
 	wake_up_interruptible(&dev->inq);
     if(dev->async_queue){
+        // 数据到达后,通知相关进程
         kill_fasync(&dev->async_queue , SIGIO , POLL_IN);
     }
 	PDEBUG("\"%s\" did write %li bytes\n",current->comm, (long)count);

@@ -250,9 +250,6 @@ static unsigned int scull_p_poll(struct file *filp, poll_table *wait)
 }
 
 
-
-
-
 static int scull_p_fasync(int fd, struct file *filp, int mode)
 {
 	struct scull_pipe *dev = filp->private_data;
